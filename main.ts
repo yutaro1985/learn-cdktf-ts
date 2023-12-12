@@ -3,15 +3,24 @@ import { App, TerraformOutput, TerraformStack } from "cdktf";
 import { AwsProvider } from "@cdktf/provider-aws/lib/provider";
 import { Instance } from "@cdktf/provider-aws/lib/instance";
 import { DataAwsSsmParameter } from "@cdktf/provider-aws/lib/data-aws-ssm-parameter";
+import { Vpc } from "./modules/vpc";
 
 class MyStack extends TerraformStack {
   constructor(scope: Construct, id: string) {
     super(scope, id);
 
-    // define rcdesources here
     new AwsProvider(this, "aws", {
       region: "ap-northeast-1",
       profile: "privateadmin",
+    });
+
+    // create vpc from module
+    const vpc = new Vpc(this, "vpc", {
+      projectName: "advent_calendar",
+      env: "dev",
+      vpc_cidr_block: "10.0.0.0/16",
+      az_suffixes: ["a", "c", "d"],
+      create_ssm_endpoint: true,
     });
 
     const amazonLinux2023Latest = new DataAwsSsmParameter(
@@ -25,6 +34,7 @@ class MyStack extends TerraformStack {
     const ec2Instance = new Instance(this, "compute", {
       ami: amazonLinux2023Latest.value,
       instanceType: "t2.micro",
+      subnetId: vpc.publicSubnets[0].id,
     });
 
     new TerraformOutput(this, "public_ip", {
