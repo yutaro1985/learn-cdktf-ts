@@ -1,17 +1,22 @@
-import { Construct } from "constructs";
-import { App, TerraformOutput, TerraformStack, Token, Fn } from "cdktf";
+import { Cloud9EnvironmentEc2 } from "@cdktf/provider-aws/lib/cloud9-environment-ec2";
+import { Cloud9EnvironmentMembership } from "@cdktf/provider-aws/lib/cloud9-environment-membership";
+import { DataAwsIamUser } from "@cdktf/provider-aws/lib/data-aws-iam-user";
+import { DataAwsInstance } from "@cdktf/provider-aws/lib/data-aws-instance";
 import { AwsProvider } from "@cdktf/provider-aws/lib/provider";
-import { Instance } from "@cdktf/provider-aws/lib/instance";
-import { DataAwsSsmParameter } from "@cdktf/provider-aws/lib/data-aws-ssm-parameter";
+import { App, Fn, TerraformOutput, TerraformStack, Token } from "cdktf";
+import { Construct } from "constructs";
 import { Vpc } from "./.gen/modules/vpc";
 
+interface MyConfig {
+  name: any;
+}
+
 class MyStack extends TerraformStack {
-  constructor(scope: Construct, id: string) {
+  constructor(scope: Construct, id: string, config: MyConfig) {
     super(scope, id);
 
     new AwsProvider(this, "aws", {
       region: "ap-northeast-1",
-      profile: "privateadmin",
     });
 
     // create vpc from module
@@ -23,26 +28,53 @@ class MyStack extends TerraformStack {
       createSsmEndpoint: true,
     });
 
-    const amazonLinux2023Latest = new DataAwsSsmParameter(
-      this,
-      "AL2023latest",
-      {
-        name: "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64",
-      }
-    );
-    const public_subnets = Fn.lookup(
+    // const public_subnets = Fn.lookup(
+    //   Token.asAnyMap(vpc.outputsOutput),
+    //   "public_subnets"
+    // );
+    const private_subnets = Fn.lookup(
       Token.asAnyMap(vpc.outputsOutput),
       "public_subnets"
     );
-    const ec2Instance = new Instance(this, "compute", {
-      ami: amazonLinux2023Latest.value,
-      instanceType: "t2.micro",
-      subnetId: Fn.element(public_subnets, Math.floor(Math.random() * 3)),
+    const example = new Cloud9EnvironmentEc2(this, "example", {
+      instanceType: "t3.medium",
+      name: config.name,
+      connectionType: "CONNECT_SSM",
+      subnetId: Fn.element(private_subnets, 0),
+      imageId: "amazonlinux-2-x86_64",
     });
+    const cloud9Instance = new DataAwsInstance(this, "cloud9_instance", {
+      filter: [
+        {
+          name: "tag:aws:cloud9:environment",
+          values: [example.id],
+        },
+      ],
+    });
+    // const cloud9Eip = new Eip(this, "cloud9_eip", {
+    //   domain: "vpc",
+    //   instance: Token.asString(cloud9Instance.id),
+    // });
+    const iamUserName = process.env.MYIAM as string;
+
+    const myuser = new DataAwsIamUser(this, "myuser", {
+      userName: iamUserName,
+    });
+    const awsCloud9EnvironmentMembershipTest = new Cloud9EnvironmentMembership(
+      this,
+      "test_2",
+      {
+        environmentId: example.id,
+        permissions: "read-write",
+        userArn: myuser.arn,
+      }
+    );
+    /*This allows the Terraform resource name to match the original name. You can remove the call if you don't need them to match.*/
+    awsCloud9EnvironmentMembershipTest.overrideLogicalId("test");
 
     let outputs = new Map();
-    outputs.set("public_ip", ec2Instance.publicIp);
-    outputs.set("subnet", ec2Instance.availabilityZone);
+    // outputs.set("cloud9_public_ip", cloud9Eip.publicIp);
+    outputs.set("cloud9_instance_id", cloud9Instance.id);
 
     new TerraformOutput(this, "outputs", {
       value: outputs,
@@ -51,6 +83,6 @@ class MyStack extends TerraformStack {
 }
 
 const app = new App();
-new MyStack(app, "aws_instance");
+new MyStack(app, "aws_instance", { name: "advent_calendar" });
 
 app.synth();

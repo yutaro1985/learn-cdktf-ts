@@ -21,7 +21,8 @@
     "stripInternal": true,
     "target": "ES2018",
     "incremental": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "rootDir": "."
   },
   "include": ["**/*.ts", "terraform-code/vpc/vpc.ts.org"],
   "exclude": ["node_modules", "cdktf.out"]
